@@ -21,8 +21,8 @@ app.get('/health', (req: Request, res: Response) => {
   res.send('Servidor corriendo correctamente');
 });
 
-// Lista de modelos a intentar en orden en caso de saturación (503)
-const MODELS_TO_TRY = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'];
+// Modelos activos de la serie v3 en el nivel gratuito
+const MODELS_TO_TRY = ['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3.0-flash'];
 
 app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -36,7 +36,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     let reply = '';
     let lastError: any = null;
 
-    // Intentar con la lista de modelos de respaldo si uno falla
+    // Probar secuencialmente con los modelos v3
     for (const modelName of MODELS_TO_TRY) {
       try {
         const response = await ai.models.generateContent({
@@ -45,7 +45,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
         });
         reply = response.text || 'Sin respuesta del modelo.';
         lastError = null;
-        break; // Éxito, salimos del ciclo
+        break; // Éxito
       } catch (err: any) {
         console.warn(`Error con el modelo ${modelName}, intentando siguiente...`, err.message || err);
         lastError = err;
