@@ -1,74 +1,44 @@
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import * as path from "path";
-import * as fs from "fs";
-import { generateText } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { oc_leer_paquete, oc_validar, oc_construir_payload, oc_generar_evidencia, oc_crear } from "./tools/oc.js";
+import express from 'express';
+import path from 'path';
+import dotenv from 'dotenv';
+import { runAgent } from './agent'; // Ajusta si la función de entrada a tu agente tiene otro nombre
 
 dotenv.config();
 
 const app = express();
-app.use(cors());
-app.use(express.json());
-app.use(express.static("web"));
-
 const PORT = process.env.PORT || 3000;
-const systemPrompt = fs.readFileSync(path.join(process.cwd(), "agent/prompt.md"), "utf-8");
 
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true, provider: "OpenAI", model: "gpt-4o-mini" });
-});
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../web')));
 
-app.post("/api/chat", async (req, res) => {
+app.post('/api/chat', async (req, res) => {
   try {
     const { message } = req.body;
-    const ctx = { directory: process.cwd() };
+    console.log('[API] Mensaje recibido:', message);
 
-    const result = await generateText({
-      model: openai("gpt-4o-mini"),
-      system: systemPrompt,
-      prompt: message,
-      tools: {
-        oc_leer_paquete: {
-          description: oc_leer_paquete.description,
-          parameters: oc_leer_paquete.args,
-          execute: async (args: any) => JSON.parse(await oc_leer_paquete.execute(args, ctx))
-        },
-        oc_validar: {
-          description: oc_validar.description,
-          parameters: oc_validar.args,
-          execute: async (args: any) => JSON.parse(await oc_validar.execute(args, ctx))
-        },
-        oc_construir_payload: {
-          description: oc_construir_payload.description,
-          parameters: oc_construir_payload.args,
-          execute: async (args: any) => JSON.parse(await oc_construir_payload.execute(args, ctx))
-        },
-        oc_generar_evidencia: {
-          description: oc_generar_evidencia.description,
-          parameters: oc_generar_evidencia.args,
-          execute: async (args: any) => JSON.parse(await oc_generar_evidencia.execute(args, ctx))
-        },
-        oc_crear: {
-          description: oc_crear.description,
-          parameters: oc_crear.args,
-          execute: async (args: any) => JSON.parse(await oc_crear.execute(args, ctx))
-        }
-      },
-      maxSteps: 10
-    });
+    if (!message) {
+      return res.status(400).json({ response: 'El mensaje es requerido.' });
+    }
 
-    res.json({
-      reply: result.text,
-      toolCalls: result.toolCalls || []
-    });
+    // Ejecuta la lógica principal del agente
+    const result = await runAgent(message);
+    console.log('[API] Respuesta generada:', result);
+
+    const formattedResponse = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+    return res.json({ response: formattedResponse });
+
   } catch (error: any) {
-    res.status(500).json({ ok: false, error: error.message });
+    console.error('[API Error]:', error);
+    return res.status(500).json({ 
+      response: `Error interno en el servidor: ${error.message || error}` 
+    });
   }
 });
 
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../web/index.html'));
+});
+
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor iniciado en http://localhost:${PORT}`);
+  console.log(`Servidor activo en el puerto ${PORT}`);
 });
