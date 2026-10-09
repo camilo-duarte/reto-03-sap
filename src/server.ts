@@ -50,17 +50,17 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
         throw new Error('No hay API key configurada.');
       }
 
-      // Petición oficial a OpenRouter usando el endpoint compatible con OpenAI
+      // Petición oficial a OpenRouter usando Llama 3 8B gratuito
       const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey.trim()}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://periferia.it', // Requerido/Recomendado por OpenRouter
-          'X-Title': 'SAP Procurement Agent'         // Nombre de la app para OpenRouter
+          'HTTP-Referer': 'https://periferia.it',
+          'X-Title': 'SAP Procurement Agent'
         },
         body: JSON.stringify({
-          model: 'deepseek/deepseek-chat:free', // Modelo gratuito altamente estable en OpenRouter
+          model: 'meta-llama/llama-3-8b-instruct:free', // Modelo 100% gratuito y estable en OpenRouter
           messages: [
             {
               role: 'system',
@@ -87,7 +87,6 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     } catch (apiError: any) {
       console.warn('[WARN] Usando respaldo determinista local debido a:', apiError.message);
       
-      // Respaldo robusto de alta disponibilidad
       if (resultadoCreacion) {
         responseText = resultadoCreacion.success 
           ? `La solicitud ${matchSolicitud?.[0]?.toUpperCase()} ha sido procesada exitosamente. Orden de Compra generada en SAP: #${resultadoCreacion.ordenCompra}`
