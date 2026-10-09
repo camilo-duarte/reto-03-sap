@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { OpenAI } from 'openai';
+import * as ocTools from './tools/oc.js'; // Nausar ti .js extension para iti ESM
 
 dotenv.config();
 
@@ -15,7 +16,6 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../web')));
 
-// Inicialización de OpenAI si existe la clave en el entorno
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || ''
 });
@@ -29,7 +29,6 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ response: 'El mensaje es requerido.' });
     }
 
-    // Respuesta del Agente
     let responseText = '';
 
     if (process.env.OPENAI_API_KEY) {
@@ -38,14 +37,14 @@ app.post('/api/chat', async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: 'Eres el asistente de control de compras SAP. Procesas solicitudes ejecutando reglas de control deterministas RC1-RC10.'
+            content: 'Eres el agente conversacional de control de compras SAP. Tu función es procesar solicitudes ejecutando las validaciones y reglas de negocio RC1-RC10.'
           },
           { role: 'user', content: message }
         ]
       });
       responseText = completion.choices[0]?.message?.content || 'Sin respuesta del modelo.';
     } else {
-      responseText = `Procesando solicitud: "${message}". (Configura OPENAI_API_KEY en Render para respuestas de IA completas).`;
+      responseText = `Procesando solicitud: "${message}". (Asegúrate de tener OPENAI_API_KEY en Render).`;
     }
 
     console.log('[API] Respuesta enviada:', responseText);
@@ -54,7 +53,7 @@ app.post('/api/chat', async (req, res) => {
   } catch (error: any) {
     console.error('[API Error]:', error);
     return res.status(500).json({ 
-      response: `Error en el servidor: ${error.message || error}` 
+      response: `Error interno en el servidor: ${error.message || error}` 
     });
   }
 });
