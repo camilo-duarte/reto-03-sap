@@ -30,7 +30,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     }
 
     const completion = await openai.chat.completions.create({
-      model: 'meta-llama/llama-3.2-3b-instruct:free', // Modelo 100% gratuito que no requiere saldo
+      model: 'google/gemini-2.0-flash-lite-001:free', // Modelo 100% gratuito activo en OpenRouter
       messages: [
         { role: 'user', content: message }
       ],
