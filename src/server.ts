@@ -21,6 +21,9 @@ app.get('/health', (req: Request, res: Response) => {
   res.send('Servidor corriendo correctamente');
 });
 
+// Lista de modelos a intentar en orden en caso de saturación (503)
+const MODELS_TO_TRY = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'];
+
 app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
   try {
     const { message } = req.body;
@@ -30,13 +33,29 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Consulta directa usando el modelo recomendado por Google
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: message,
-    });
+    let reply = '';
+    let lastError: any = null;
 
-    const reply = response.text || 'Sin respuesta del modelo.';
+    // Intentar con la lista de modelos de respaldo si uno falla
+    for (const modelName of MODELS_TO_TRY) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: message,
+        });
+        reply = response.text || 'Sin respuesta del modelo.';
+        lastError = null;
+        break; // Éxito, salimos del ciclo
+      } catch (err: any) {
+        console.warn(`Error con el modelo ${modelName}, intentando siguiente...`, err.message || err);
+        lastError = err;
+      }
+    }
+
+    if (lastError && !reply) {
+      throw lastError;
+    }
+
     res.json({ success: true, response: reply });
   } catch (error: any) {
     console.error('Error al comunicarse con Gemini API:', error);
