@@ -45,13 +45,11 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     let responseText = '';
     const apiKey = process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY;
 
-    // Intentar usar LLM (Anthropic o Gemini según la llave configurada)
     try {
       if (!apiKey) {
         throw new Error('No hay API key configurada, usando respaldo directo.');
       }
 
-      // Si la llave empieza con sk-ant, usamos Anthropic Claude
       if (apiKey.startsWith('sk-ant')) {
         const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
@@ -63,7 +61,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
           body: JSON.stringify({
             model: 'claude-3-5-sonnet-20241022',
             max_tokens: 1024,
-            system: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. Redacta una respuesta profesional, clara y ejecutiva en español basándote estrictamente en la información técnica proporcionada.\n${contextoTecnico}`,
+            system: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. Responde de forma natural, fluida y profesional a cualquier pregunta del usuario (como listar solicitudes, explicar reglas, o saludar), integrando los datos técnicos de SAP solo cuando sea necesario.\n${contextoTecnico}`,
             messages: [{ role: 'user', content: message }],
           }),
         });
@@ -72,15 +70,15 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
         if (!anthropicResponse.ok) throw new Error(data.error?.message || 'Error en Anthropic');
         responseText = data.content?.[0]?.text || '';
       } else {
-        // De lo contrario, intentamos usar Google Gemini
-        const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        // Usamos el modelo correcto gemini-3.8-flash
+        const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             contents: [{
               role: 'user',
               parts: [{
-                text: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. Redacta una respuesta profesional, clara y ejecutiva en español.\n\nConsulta: "${message}"\n${contextoTecnico}`
+                text: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. Responde de manera natural, conversacional y profesional a cualquier consulta del usuario (saludos, preguntas generales, listado de solicitudes, o validaciones). Si te preguntan qué solicitudes hay, puedes mencionar que manejas las solicitudes desde sol-001 hasta sol-006.\n\nConsulta del usuario: "${message}"\n${contextoTecnico}`
               }]
             }]
           }),
@@ -94,23 +92,19 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
       if (!responseText) throw new Error('Respuesta vacía del LLM');
 
     } catch (apiError: any) {
-      // Fallback limpio y directo sin mencionar prefijos extraños
+      console.warn('[WARN] Error al consultar el LLM, usando respaldo:', apiError.message);
+      
+      // Respaldo por si falla la red
       if (resultadoCreacion) {
-        if (resultadoCreacion.success) {
-          responseText = `La solicitud **${matchSolicitud?.[0]?.toUpperCase()}** ha sido aprobada y procesada exitosamente. Se ha generado la Orden de Compra en SAP: **#${resultadoCreacion.ordenCompra}**`;
-        } else {
-          responseText = `La solicitud no pudo ser procesada. ${resultadoCreacion.mensaje}`;
-        }
+        responseText = resultadoCreacion.success 
+          ? `La solicitud ${matchSolicitud?.[0]?.toUpperCase()} ha sido procesada exitosamente. Orden de Compra generada en SAP: #${resultadoCreacion.ordenCompra}`
+          : `La solicitud no pudo procesarse: ${resultadoCreacion.mensaje}`;
       } else if (resultadoValidacion) {
-        if (resultadoValidacion.apta) {
-          responseText = `La solicitud **${matchSolicitud?.[0]?.toUpperCase()}** cumple con todos los controles internos (RC1-RC10) y se encuentra apta para proceder con la creación de la Orden de Compra.`;
-        } else {
-          let detalleBloqueos = resultadoValidacion.bloqueos.length > 0 ? `\n- Bloqueos:\n  * ${resultadoValidacion.bloqueos.join('\n  * ')}` : '';
-          let detalleAlertas = resultadoValidacion.confirmacionesRequeridas.length > 0 ? `\n- Alertas HITL (Requieren confirmación):\n  * ${resultadoValidacion.confirmacionesRequeridas.join('\n  * ')}` : '';
-          responseText = `Se han evaluado los controles para la solicitud **${matchSolicitud?.[0]?.toUpperCase()}**:${detalleBloqueos}${detalleAlertas}`;
-        }
+        responseText = resultadoValidacion.apta 
+          ? `La solicitud ${matchSolicitud?.[0]?.toUpperCase()} es totalmente apta para crear su orden de compra.`
+          : `La solicitud ${matchSolicitud?.[0]?.toUpperCase()} presenta observaciones de control interno.`;
       } else {
-        responseText = `Hola. Soy el Agente SAP de Periferia IT Group. Por favor, indícame el número de solicitud que deseas consultar o procesar (ej: sol-001).`;
+        responseText = `¡Hola! Soy tu asistente experto en órdenes de compra SAP para Periferia IT Group. Puedo ayudarte a consultar, validar y procesar solicitudes (desde sol-001 hasta sol-006). ¿En qué te puedo colaborar hoy?`;
       }
     }
 
