@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, '../web')));
 
 app.get('/health', (req: Request, res: Response) => {
-  res.send('Servidor corriendo correctamente con Gemini API');
+  res.send('Servidor corriendo correctamente');
 });
 
 app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
@@ -43,52 +43,74 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     }
 
     let responseText = '';
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY;
 
-    if (!apiKey) {
-      res.status(500).json({ error: 'La variable de entorno GEMINI_API_KEY no está configurada en el servidor.' });
-      return;
-    }
-
-    // Llamada a la API de Gemini usando fetch nativo con el modelo gemini-1.5-flash o gemini-2.5-flash
+    // Intentar usar LLM (Anthropic o Gemini según la llave configurada)
     try {
-      const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. 
-Interpreta las consultas del usuario, analiza los datos técnicos de cumplimiento normativo (RC1-RC10) y redacta una respuesta profesional y ejecutiva en español.\n\nConsulta del usuario: "${message}"\n${contextoTecnico}`
-                }
-              ]
-            }
-          ]
-        }),
-      });
-
-      const data = await geminiResponse.json();
-
-      if (!geminiResponse.ok) {
-        throw new Error(data.error?.message || 'Error en la respuesta de la API de Gemini');
+      if (!apiKey) {
+        throw new Error('No hay API key configurada, usando respaldo directo.');
       }
 
-      responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Operación procesada con éxito.';
-    } catch (apiError: any) {
-      console.warn('[WARN] Error al consultar la API de Gemini. Activando fallback determinista local:', apiError.message);
-      
-      // Fallback seguro ante fallos del LLM o cuotas excedidas
-      if (resultadoCreacion) {
-        responseText = `[Modo Asistente SAP Directo]: La operación se ha procesado de forma determinista.\n- Estado: ${resultadoCreacion.success ? 'ÉXITO' : 'BLOQUEADO'}\n- Mensaje: ${resultadoCreacion.mensaje}\n- Orden SAP: ${resultadoCreacion.ordenCompra || 'N/A'}`;
-      } else if (resultadoValidacion) {
-        responseText = `[Modo Asistente SAP Directo]: Validación de controles para la solicitud:\n- Apta: ${resultadoValidacion.apta}\n- Bloqueos: ${resultadoValidacion.bloqueos.length > 0 ? resultadoValidacion.bloqueos.join(' | ') : 'Ninguno'}\n- Alertas HITL: ${resultadoValidacion.confirmacionesRequeridas.length > 0 ? resultadoValidacion.confirmacionesRequeridas.join(' | ') : 'Ninguna'}`;
+      // Si la llave empieza con sk-ant, usamos Anthropic Claude
+      if (apiKey.startsWith('sk-ant')) {
+        const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'claude-3-5-sonnet-20241022',
+            max_tokens: 1024,
+            system: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. Redacta una respuesta profesional, clara y ejecutiva en español basándote estrictamente en la información técnica proporcionada.\n${contextoTecnico}`,
+            messages: [{ role: 'user', content: message }],
+          }),
+        });
+
+        const data = await anthropicResponse.json();
+        if (!anthropicResponse.ok) throw new Error(data.error?.message || 'Error en Anthropic');
+        responseText = data.content?.[0]?.text || '';
       } else {
-        responseText = `Hola. Soy el Agente SAP de Periferia IT Group. He recibido tu mensaje. Por favor, indica un número de solicitud válido (ej: sol-001 a sol-006).`;
+        // De lo contrario, intentamos usar Google Gemini
+        const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              role: 'user',
+              parts: [{
+                text: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. Redacta una respuesta profesional, clara y ejecutiva en español.\n\nConsulta: "${message}"\n${contextoTecnico}`
+              }]
+            }]
+          }),
+        });
+
+        const data = await geminiResponse.json();
+        if (!geminiResponse.ok) throw new Error(data.error?.message || 'Error en Gemini');
+        responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      }
+
+      if (!responseText) throw new Error('Respuesta vacía del LLM');
+
+    } catch (apiError: any) {
+      // Fallback limpio y directo sin mencionar prefijos extraños
+      if (resultadoCreacion) {
+        if (resultadoCreacion.success) {
+          responseText = `La solicitud **${matchSolicitud?.[0]?.toUpperCase()}** ha sido aprobada y procesada exitosamente. Se ha generado la Orden de Compra en SAP: **#${resultadoCreacion.ordenCompra}**`;
+        } else {
+          responseText = `La solicitud no pudo ser procesada. ${resultadoCreacion.mensaje}`;
+        }
+      } else if (resultadoValidacion) {
+        if (resultadoValidacion.apta) {
+          responseText = `La solicitud **${matchSolicitud?.[0]?.toUpperCase()}** cumple con todos los controles internos (RC1-RC10) y se encuentra apta para proceder con la creación de la Orden de Compra.`;
+        } else {
+          let detalleBloqueos = resultadoValidacion.bloqueos.length > 0 ? `\n- Bloqueos:\n  * ${resultadoValidacion.bloqueos.join('\n  * ')}` : '';
+          let detalleAlertas = resultadoValidacion.confirmacionesRequeridas.length > 0 ? `\n- Alertas HITL (Requieren confirmación):\n  * ${resultadoValidacion.confirmacionesRequeridas.join('\n  * ')}` : '';
+          responseText = `Se han evaluado los controles para la solicitud **${matchSolicitud?.[0]?.toUpperCase()}**:${detalleBloqueos}${detalleAlertas}`;
+        }
+      } else {
+        responseText = `Hola. Soy el Agente SAP de Periferia IT Group. Por favor, indícame el número de solicitud que deseas consultar o procesar (ej: sol-001).`;
       }
     }
 
