@@ -10,114 +10,88 @@ app.use(express.json());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Servir frontend estático da pasta 'web'
+// Servir frontend estático
 app.use(express.static(path.join(__dirname, '../web')));
 
-// Inicializar o cliente oficial do Gemini
+// Inicializar cliente Gemini
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY,
 });
 
 app.get('/health', (req: Request, res: Response) => {
-  res.send('Servidor rodando corretamente');
+  res.send('Servidor corriendo correctamente');
 });
 
-// 1. Carregar Dados Mestres Corporativos (Maestros)
-function cargarMaestros(): Record<string, any> {
-  const maestrosPath = path.join(__dirname, '../fixtures/reto-03/maestros');
-  const maestros: Record<string, any> = {};
+// Cargar maestros de forma segura
+function cargarMaestrosLigeros(): string {
+  try {
+    const maestrosPath = path.join(__dirname, '../fixtures/reto-03/maestros');
+    if (!fs.existsSync(maestrosPath)) return '[]';
 
-  if (fs.existsSync(maestrosPath)) {
-    const archivos = fs.readdirSync(maestrosPath);
-    for (const archivo of archivos) {
-      if (archivo.endsWith('.json')) {
-        const contenido = fs.readFileSync(path.join(maestrosPath, archivo), 'utf-8');
-        try {
-          maestros[archivo.replace('.json', '')] = JSON.parse(contenido);
-        } catch {
-          maestros[archivo.replace('.json', '')] = contenido;
-        }
-      }
-    }
-    console.log(`[OK] Maestros cargados: ${Object.keys(maestros).join(', ')}`);
-  } else {
-    console.warn(`[WARN] Ruta de maestros no encontrada: ${maestrosPath}`);
+    const proveedores = path.join(maestrosPath, 'proveedores.json');
+    const centrosCosto = path.join(maestrosPath, 'centros-costo.json');
+
+    const provContent = fs.existsSync(proveedores) ? fs.readFileSync(proveedores, 'utf-8') : '[]';
+    const ccContent = fs.existsSync(centrosCosto) ? fs.readFileSync(centrosCosto, 'utf-8') : '[]';
+
+    return `PROVEEDORES:\n${provContent}\n\nCENTROS DE COSTO:\n${ccContent}`;
+  } catch (err) {
+    console.error('Error cargando maestros:', err);
+    return '';
   }
-
-  return maestros;
 }
 
-// 2. Carregar Expedientes de Solicitações (sol-001 a sol-006)
-function cargarExpedientes(): any[] {
-  const solicitudesPath = path.join(__dirname, '../fixtures/reto-03/solicitudes');
-  const expedientes: any[] = [];
+// Cargar expedientes de solicitudes de forma limpia
+function cargarExpedientesLigeros(): string {
+  try {
+    const solicitudesPath = path.join(__dirname, '../fixtures/reto-03/solicitudes');
+    if (!fs.existsSync(solicitudesPath)) return '[]';
 
-  if (fs.existsSync(solicitudesPath)) {
     const carpetas = fs.readdirSync(solicitudesPath);
+    const resumenes: string[] = [];
 
     for (const carpeta of carpetas) {
       const carpetaPath = path.join(solicitudesPath, carpeta);
-
       if (fs.statSync(carpetaPath).isDirectory()) {
-        const expediente: Record<string, any> = {
-          solicitud_id_folder: carpeta,
-          documentos: {}
-        };
-
         const archivos = fs.readdirSync(carpetaPath);
+        let detalle = `--- EXPEDIENTE: ${carpeta} ---\n`;
+
         for (const archivo of archivos) {
-          const archivoPath = path.join(carpetaPath, archivo);
-          const contenido = fs.readFileSync(archivoPath, 'utf-8');
-
-          if (archivo.endsWith('.json')) {
-            try {
-              expediente.documentos[archivo] = JSON.parse(contenido);
-            } catch {
-              expediente.documentos[archivo] = contenido;
-            }
-          } else {
-            expediente.documentos[archivo] = contenido;
-          }
+          const contenido = fs.readFileSync(path.join(carpetaPath, archivo), 'utf-8');
+          detalle += `[${archivo}]:\n${contenido}\n`;
         }
-
-        expedientes.push(expediente);
+        resumenes.push(detalle);
       }
     }
-    console.log(`[OK] Cargadas ${expedientes.length} solicitudes completas.`);
-  } else {
-    console.warn(`[WARN] Ruta de solicitudes no encontrada: ${solicitudesPath}`);
-  }
 
-  return expedientes;
+    return resumenes.join('\n');
+  } catch (err) {
+    console.error('Error cargando expedientes:', err);
+    return '';
+  }
 }
 
-// Carregar contexto em memória ao iniciar o servidor
-const MAESTROS_DATA = JSON.stringify(cargarMaestros(), null, 2);
-const EXPEDIENTES_DATA = JSON.stringify(cargarExpedientes(), null, 2);
-
-// System Instruction para o Agente Conversacional SAP
+// System Instruction unificada y concisa
 const SYSTEM_INSTRUCTION = `Eres el Agente Conversacional experto en Control y Creación de Órdenes de Compra en SAP (Reto 03 - Periferia IT Group).
 
-DATOS MAESTROS DE REFERENCIA (Sistemas Corporativos):
-${MAESTROS_DATA}
+BASE DE DATOS MAESTROS Y EXPEDIENTES DISPONIBLES:
+${cargarMaestrosLigeros()}
 
-EXPEDIENTES DIGITALES DE SOLICITUDES (sol-001 a sol-006):
-${EXPEDIENTES_DATA}
+${cargarExpedientesLigeros()}
 
-MATRIZ DE CONTROLES DE NEGOCIO Y REGLAS DE VALIDACIÓN (RC1 - RC10):
-- RC1 (Proveedor Activo): Validar NIT/Nombre contra 'proveedores'.
-- RC2-RC4 (Autoridad y Centro de Costo): Verificar si el aprobador está autorizado y si el monto supera el tope en 'centros-costo'.
-- RC5-RC7 (Cotización, IVA y Pago): Validar coincidencia de valores e indicadores con 'indicadores-iva' y 'condiciones-pago'.
-- RC8 (Alerta Retroactiva): Si existe 'factura.txt', detectar si la fecha de emisión es anterior a la fecha de la solicitud.
-- RC10 (Consistencia Matemática): Verificar estrictamente que (Cantidad * Valor Unitario = Valor Total).
+CONTROLES DE NEGOCIO (RC1 - RC10):
+- RC1: Proveedor registrado y activo.
+- RC2-RC4: Autoridad de aprobación según monto y centro de costo.
+- RC5-RC7: Coincidencia entre cotización, correo, solicitud, indicador IVA y condición de pago.
+- RC8: Alerta retroactiva si la fecha de factura.txt es previa a solicitud.json.
+- RC10: Consistencia matemática (Cantidad * Valor Unitario = Valor Total).
 
-INSTRUCCIONES DE RESPUESTA:
-1. Cuando el usuario solicite procesar o consultar una solicitud (ej. "sol-001", "sol-005", "SOL-2026-001"):
-   - Presenta la información resumida del caso.
-   - Detalla el resultado de la validación de cada regla (RC1 a RC10).
-   - Si se detecta alguna anomalía (ej. compra retroactiva RC8 o inconformidad de monto RC2-RC4), notifica que se requiere confirmación humana antes de proceder.
-   - Si la solicitud es válida y cumple con todos los controles, indica que está lista para la creación de la Orden de Compra en SAP.
-2. Si se consulta una solicitud inexistente, infórmalo amablemente.`;
+INSTRUCCIONES:
+1. Cuando el usuario pregunte por alguna solicitud (ej: "sol-001", "sol-002", "sol-005"), analiza sus documentos cargados.
+2. Muestra un resumen del caso.
+3. Evalúa las reglas RC1 a RC10.
+4. Si detectas alertas (como compra retroactiva en sol-005 o problemas de monto), notifica que se requiere confirmación humana.
+5. Si todo es conforme, declara la solicitud lista para la orden en SAP.`;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -149,6 +123,8 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
         break;
       } catch (err: any) {
         lastError = err;
+        console.error(`Error en intento ${attempt}:`, err?.message || err);
+
         const isTransient =
           err?.status === 503 ||
           err?.status === 429 ||
@@ -157,7 +133,6 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
 
         if (isTransient && attempt < maxRetries) {
           const delay = attempt * 2000;
-          console.warn(`[Intento ${attempt}/${maxRetries}] Reintentando por alta demanda en ${delay / 1000}s...`);
           await sleep(delay);
           continue;
         }
@@ -172,10 +147,10 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
 
     res.json({ success: true, response: reply });
   } catch (error: any) {
-    console.error('Error al comunicarse con Gemini API:', error);
+    console.error('Error final en /api/chat:', error?.message || error);
     res.status(500).json({
       error: 'Error interno en el servidor',
-      details: error.message || error,
+      details: error?.message || String(error),
     });
   }
 });
