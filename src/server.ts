@@ -1,15 +1,24 @@
 import express from 'express';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { runAgent } from './agent'; // Ajusta si la función de entrada a tu agente tiene otro nombre
+import { OpenAI } from 'openai';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../web')));
+
+// Inicialización de OpenAI si existe la clave en el entorno
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || ''
+});
 
 app.post('/api/chat', async (req, res) => {
   try {
@@ -20,17 +29,32 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ response: 'El mensaje es requerido.' });
     }
 
-    // Ejecuta la lógica principal del agente
-    const result = await runAgent(message);
-    console.log('[API] Respuesta generada:', result);
+    // Respuesta del Agente
+    let responseText = '';
 
-    const formattedResponse = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-    return res.json({ response: formattedResponse });
+    if (process.env.OPENAI_API_KEY) {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'Eres el asistente de control de compras SAP. Procesas solicitudes ejecutando reglas de control deterministas RC1-RC10.'
+          },
+          { role: 'user', content: message }
+        ]
+      });
+      responseText = completion.choices[0]?.message?.content || 'Sin respuesta del modelo.';
+    } else {
+      responseText = `Procesando solicitud: "${message}". (Configura OPENAI_API_KEY en Render para respuestas de IA completas).`;
+    }
+
+    console.log('[API] Respuesta enviada:', responseText);
+    return res.json({ response: responseText });
 
   } catch (error: any) {
     console.error('[API Error]:', error);
     return res.status(500).json({ 
-      response: `Error interno en el servidor: ${error.message || error}` 
+      response: `Error en el servidor: ${error.message || error}` 
     });
   }
 });
