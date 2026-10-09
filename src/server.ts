@@ -26,7 +26,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     }
 
     const completion = await openai.chat.completions.create({
-      model: 'gemini-2.5-flash', // Modelo de Google Gemini 100% gratuito
+      model: 'gemini-1.5-flash', // Nombre de modelo válido en el endpoint de Google
       messages: [
         { role: 'user', content: message }
       ],
