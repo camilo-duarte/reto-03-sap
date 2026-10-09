@@ -43,58 +43,46 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     }
 
     let responseText = '';
-    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY;
 
     try {
       if (!apiKey) {
         throw new Error('No hay API key configurada, usando respaldo directo.');
       }
 
-      if (apiKey.startsWith('sk-ant')) {
-        const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'claude-3-5-sonnet-20241022',
-            max_tokens: 1024,
-            system: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. Responde de forma natural, fluida y profesional a cualquier pregunta del usuario (como listar solicitudes, explicar reglas, o saludar), integrando los datos técnicos de SAP solo cuando sea necesario.\n${contextoTecnico}`,
-            messages: [{ role: 'user', content: message }],
-          }),
-        });
-
-        const data = await anthropicResponse.json();
-        if (!anthropicResponse.ok) throw new Error(data.error?.message || 'Error en Anthropic');
-        responseText = data.content?.[0]?.text || '';
-      } else {
-        // Usamos el modelo correcto gemini-3.8-flash
-        const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
+      // Si usas Groq (la llave suele empezar por gsk_)
+      const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            {
+              role: 'system',
+              content: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. Responde de manera natural, conversacional y profesional en español a cualquier consulta del usuario (saludos, preguntas generales, listado de solicitudes, o validaciones). Si te preguntan qué solicitudes hay, menciona que manejas las solicitudes desde sol-001 hasta sol-006.\n${contextoTecnico}`
+            },
+            {
               role: 'user',
-              parts: [{
-                text: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. Responde de manera natural, conversacional y profesional a cualquier consulta del usuario (saludos, preguntas generales, listado de solicitudes, o validaciones). Si te preguntan qué solicitudes hay, puedes mencionar que manejas las solicitudes desde sol-001 hasta sol-006.\n\nConsulta del usuario: "${message}"\n${contextoTecnico}`
-              }]
-            }]
-          }),
-        });
+              content: message
+            }
+          ],
+          temperature: 0.3,
+        }),
+      });
 
-        const data = await geminiResponse.json();
-        if (!geminiResponse.ok) throw new Error(data.error?.message || 'Error en Gemini');
-        responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      }
+      const data = await groqResponse.json();
+      if (!groqResponse.ok) throw new Error(data.error?.message || 'Error en Groq API');
+      responseText = data.choices?.[0]?.message?.content || '';
 
       if (!responseText) throw new Error('Respuesta vacía del LLM');
 
     } catch (apiError: any) {
-      console.warn('[WARN] Error al consultar el LLM, usando respaldo:', apiError.message);
+      console.warn('[WARN] Error al consultar el LLM, usando respaldo determinista:', apiError.message);
       
-      // Respaldo por si falla la red
+      // Respaldo robusto si la API falla
       if (resultadoCreacion) {
         responseText = resultadoCreacion.success 
           ? `La solicitud ${matchSolicitud?.[0]?.toUpperCase()} ha sido procesada exitosamente. Orden de Compra generada en SAP: #${resultadoCreacion.ordenCompra}`
