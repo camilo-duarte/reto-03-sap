@@ -1,21 +1,25 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
 
 const app = express();
 app.use(express.json());
 
-// Servir archivos estáticos de la carpeta 'web' (HTML, CSS, JS)
+// Reconstruir __dirname para compatibilidad con ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Servir archivos estáticos de la carpeta 'web'
 app.use(express.static(path.join(__dirname, '../web')));
 
-// Configuración del cliente usando la API directa y gratuita de Google Gemini
+// Configuración del cliente usando la API directa de Google Gemini
 const openai = new OpenAI({
   apiKey: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY,
   baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
 });
 
-// Ruta raíz: si existe index.html en 'web', lo sirve automáticamente.
-// Si deseas un endpoint de chequeo o backup:
+// Endpoint de chequeo de salud
 app.get('/health', (req: Request, res: Response) => {
   res.send('Servidor corriendo correctamente en Render con Gemini API');
 });
@@ -31,7 +35,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     }
 
     const completion = await openai.chat.completions.create({
-      model: 'gemini-1.5-flash', // Modelo de Google Gemini gratuito y rápido
+      model: 'gemini-1.5-flash',
       messages: [
         { role: 'user', content: message }
       ],
