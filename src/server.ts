@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 // Servir archivos estáticos de la carpeta 'web'
 app.use(express.static(path.join(__dirname, '../web')));
 
-// Inicializar el cliente oficial de Gemini
+// Inicializar cliente oficial de Gemini
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY,
 });
@@ -21,8 +21,11 @@ app.get('/health', (req: Request, res: Response) => {
   res.send('Servidor corriendo correctamente');
 });
 
-// Modelos activos de la serie v3 en el nivel gratuito
-const MODELS_TO_TRY = ['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3.0-flash'];
+// Modelos válidos en la capa gratuita
+const MODELS_TO_TRY = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'];
+
+// Función de espera activa para reintentos
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -36,20 +39,31 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     let reply = '';
     let lastError: any = null;
 
-    // Probar secuencialmente con los modelos v3
     for (const modelName of MODELS_TO_TRY) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: message,
-        });
-        reply = response.text || 'Sin respuesta del modelo.';
-        lastError = null;
-        break; // Éxito
-      } catch (err: any) {
-        console.warn(`Error con el modelo ${modelName}, intentando siguiente...`, err.message || err);
-        lastError = err;
+      // Intentar hasta 2 veces por modelo si da error de alta demanda (503)
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: message,
+          });
+          reply = response.text || 'Sin respuesta del modelo.';
+          lastError = null;
+          break;
+        } catch (err: any) {
+          lastError = err;
+          const is503 = err?.status === 503 || err?.message?.includes('503');
+          if (is503 && attempt === 1) {
+            console.warn(`[503] Modelo ${modelName} saturado. Reintentando en 1.5s...`);
+            await sleep(1500);
+            continue;
+          }
+          console.warn(`Error con modelo ${modelName}:`, err.message || err);
+          break; // Pasar al siguiente modelo
+        }
       }
+
+      if (reply) break; // Éxito, salir del bucle
     }
 
     if (lastError && !reply) {
