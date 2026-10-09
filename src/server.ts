@@ -2,7 +2,6 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI } from '@google/genai';
 import { validarSolicitudConReglas, oc_crear } from './tools/oc.js';
 
 const app = express();
@@ -13,12 +12,8 @@ const __dirname = path.dirname(__filename);
 
 app.use(express.static(path.join(__dirname, '../web')));
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY,
-});
-
 app.get('/health', (req: Request, res: Response) => {
-  res.send('Servidor corriendo correctamente');
+  res.send('Servidor corriendo correctamente con Gemini API');
 });
 
 app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
@@ -30,7 +25,6 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // 1. Detección automática de la solicitud en el mensaje (ej: sol-001, sol-004...)
     const matchSolicitud = message.match(/sol-\d{3}/i);
     let resultadoValidacion: any = null;
     let resultadoCreacion: any = null;
@@ -42,37 +36,59 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
 
       if (message.toLowerCase().includes('procesar') || message.toLowerCase().includes('crear') || confirmadoPorUsuario) {
         resultadoCreacion = oc_crear(solicitudId, true);
-        contextoTecnico = `\n[EJECUCIÓN DE ORDEN SAP]:\n${JSON.stringify(resultadoCreacion, null, 2)}`;
+        contextoTecnico = `\n[DATOS TÉCNICOS SAP - ORDEN CREADA/EVALUADA]:\n${JSON.stringify(resultadoCreacion, null, 2)}`;
       } else {
-        contextoTecnico = `\n[VALIDACIÓN TÉCNICA REGLAS RC1-RC10]:\n${JSON.stringify(resultadoValidacion, null, 2)}`;
+        contextoTecnico = `\n[DATOS TÉCNICOS SAP - VALIDACIÓN REGLAS RC1-RC10]:\n${JSON.stringify(resultadoValidacion, null, 2)}`;
       }
     }
 
     let responseText = '';
+    const apiKey = process.env.GEMINI_API_KEY;
 
-    // 2. Intentar procesar con Gemini de forma fluida
+    if (!apiKey) {
+      res.status(500).json({ error: 'La variable de entorno GEMINI_API_KEY no está configurada en el servidor.' });
+      return;
+    }
+
+    // Llamada a la API de Gemini usando fetch nativo con el modelo gemini-1.5-flash o gemini-2.5-flash
     try {
-      const systemPrompt = `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP (Periferia IT Group). 
-Utiliza estrictamente los datos técnicos adjuntos para responder de forma profesional.${contextoTecnico}`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: message,
-        config: {
-          systemInstruction: systemPrompt,
+      const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
         },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP para Periferia IT Group. 
+Interpreta las consultas del usuario, analiza los datos técnicos de cumplimiento normativo (RC1-RC10) y redacta una respuesta profesional y ejecutiva en español.\n\nConsulta del usuario: "${message}"\n${contextoTecnico}`
+                }
+              ]
+            }
+          ]
+        }),
       });
-      responseText = response.text || 'Operación procesada con éxito.';
-    } catch (aiError) {
-      // 3. FALLBACK INTELIGENTE (Si la IA falla por 503 o cuota, responde la lógica local directamente)
-      console.warn('[WARN] API de IA saturada o sin cuota. Activando respuesta determinista local.');
+
+      const data = await geminiResponse.json();
+
+      if (!geminiResponse.ok) {
+        throw new Error(data.error?.message || 'Error en la respuesta de la API de Gemini');
+      }
+
+      responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Operación procesada con éxito.';
+    } catch (apiError: any) {
+      console.warn('[WARN] Error al consultar la API de Gemini. Activando fallback determinista local:', apiError.message);
       
+      // Fallback seguro ante fallos del LLM o cuotas excedidas
       if (resultadoCreacion) {
-        responseText = `[Modo Asistente SAP Directo]: La operación sobre la solicitud se ha procesado de forma determinista.\n- Estado: ${resultadoCreacion.success ? 'ÉXITO' : 'BLOQUEADO'}\n- Mensaje: ${resultadoCreacion.mensaje}\n- Orden SAP: ${resultadoCreacion.ordenCompra || 'N/A'}`;
+        responseText = `[Modo Asistente SAP Directo]: La operación se ha procesado de forma determinista.\n- Estado: ${resultadoCreacion.success ? 'ÉXITO' : 'BLOQUEADO'}\n- Mensaje: ${resultadoCreacion.mensaje}\n- Orden SAP: ${resultadoCreacion.ordenCompra || 'N/A'}`;
       } else if (resultadoValidacion) {
-        responseText = `[Modo Asistente SAP Directo]: Validación de controles para la solicitud:\n- Apta para procesar: ${resultadoValidacion.apta}\n- Bloqueos internos: ${resultadoValidacion.bloqueos.length > 0 ? resultadoValidacion.bloqueos.join(' | ') : 'Ninguno'}\n- Alertas HITL: ${resultadoValidacion.confirmacionesRequeridas.length > 0 ? resultadoValidacion.confirmacionesRequeridas.join(' | ') : 'Ninguna'}`;
+        responseText = `[Modo Asistente SAP Directo]: Validación de controles para la solicitud:\n- Apta: ${resultadoValidacion.apta}\n- Bloqueos: ${resultadoValidacion.bloqueos.length > 0 ? resultadoValidacion.bloqueos.join(' | ') : 'Ninguno'}\n- Alertas HITL: ${resultadoValidacion.confirmacionesRequeridas.length > 0 ? resultadoValidacion.confirmacionesRequeridas.join(' | ') : 'Ninguna'}`;
       } else {
-        responseText = `Hola. Soy el Agente SAP de Periferia IT Group. He recibido tu mensaje ("${message}"). Por favor, indícate un número de solicitud válido (ej: sol-001 a sol-006) para validar las reglas RC1-RC10.`;
+        responseText = `Hola. Soy el Agente SAP de Periferia IT Group. He recibido tu mensaje. Por favor, indica un número de solicitud válido (ej: sol-001 a sol-006).`;
       }
     }
 
