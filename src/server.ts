@@ -43,14 +43,13 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     }
 
     let responseText = '';
-    const apiKey = process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY;
+    const apiKey = process.env.API_KEY || process.env.GROQ_API_KEY;
 
     try {
       if (!apiKey) {
         throw new Error('No hay API key configurada.');
       }
 
-      // Petición directa a Groq con modelo optimizado
       const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -85,7 +84,6 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     } catch (apiError: any) {
       console.warn('[WARN] Usando respaldo determinista local debido a:', apiError.message);
       
-      // Respaldo robusto para que la aplicación nunca falle en la prueba
       if (resultadoCreacion) {
         responseText = resultadoCreacion.success 
           ? `La solicitud ${matchSolicitud?.[0]?.toUpperCase()} ha sido procesada exitosamente. Orden de Compra generada en SAP: #${resultadoCreacion.ordenCompra}`
