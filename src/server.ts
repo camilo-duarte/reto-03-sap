@@ -50,7 +50,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
         throw new Error('No hay API key configurada.');
       }
 
-      // Petición oficial a OpenRouter usando Gemma 2 9B gratuito
+      // Petición oficial a OpenRouter usando el modelo gratuito actualizado
       const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -60,7 +60,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
           'X-Title': 'SAP Procurement Agent'
         },
         body: JSON.stringify({
-          model: 'google/gemma-2-9b-it:free', // Modelo gratuito y altamente disponible en OpenRouter
+          model: 'google/gemma-3-27b-it:free', // Modelo gratuito actualizado en OpenRouter
           messages: [
             {
               role: 'system',
