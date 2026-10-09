@@ -50,7 +50,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
 Utiliza estrictamente los resultados de validación técnica adjuntos para responder al usuario de forma precisa y profesional.${datosTool}`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash', // Modelo actualizado y compatible
+      model: 'gemini-3.8-flash', // Modelo actualizado según indicación de la API
       contents: message,
       config: {
         systemInstruction: systemPrompt,
