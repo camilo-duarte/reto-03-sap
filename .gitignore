@@ -1,0 +1,13 @@
+# Dependencias
+node_modules/
+
+# Archivos de salida/ejecución
+out/
+
+# Variables de entorno y llaves privadas
+.env
+
+# Archivos de sistema y editores
+.DS_Store
+.vscode/
+.idea/
