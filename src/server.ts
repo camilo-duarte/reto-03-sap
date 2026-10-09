@@ -1,67 +1,55 @@
-import express from 'express';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
-import { OpenAI } from 'openai';
-import * as ocTools from './tools/oc.js'; // Nausar ti .js extension para iti ESM
-
-dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import express, { Request, Response } from 'express';
+import OpenAI from 'openai';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../web')));
 
+// Configuración del cliente para OpenRouter
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || ''
+  apiKey: process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY,
+  baseURL: 'https://openrouter.ai/api/v1',
+  defaultHeaders: {
+    'HTTP-Referer': 'https://reto-03-sap.onrender.com',
+    'X-Title': 'Reto 03 SAP',
+  },
 });
 
-app.post('/api/chat', async (req, res) => {
+// Ruta principal de salud del servicio
+app.get('/', (req: Request, res: Response) => {
+  res.send('Servidor corriendo correctamente en Render con OpenRouter');
+});
+
+// Ejemplo de endpoint para procesar peticiones con la IA
+app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
   try {
     const { message } = req.body;
-    console.log('[API] Mensaje recibido:', message);
 
     if (!message) {
-      return res.status(400).json({ response: 'El mensaje es requerido.' });
+      res.status(400).json({ error: 'El campo message es requerido.' });
+      return;
     }
 
-    let responseText = '';
+    const completion = await openai.chat.completions.create({
+      model: 'google/gemini-2.5-flash', // Modelo gratuito en OpenRouter
+      messages: [
+        { role: 'user', content: message }
+      ],
+    });
 
-    if (process.env.OPENAI_API_KEY) {
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'Eres el agente conversacional de control de compras SAP. Tu función es procesar solicitudes ejecutando las validaciones y reglas de negocio RC1-RC10.'
-          },
-          { role: 'user', content: message }
-        ]
-      });
-      responseText = completion.choices[0]?.message?.content || 'Sin respuesta del modelo.';
-    } else {
-      responseText = `Procesando solicitud: "${message}". (Asegúrate de tener OPENAI_API_KEY en Render).`;
-    }
-
-    console.log('[API] Respuesta enviada:', responseText);
-    return res.json({ response: responseText });
-
+    const reply = completion.choices[0]?.message?.content || 'Sin respuesta del modelo.';
+    res.json({ success: true, response: reply });
   } catch (error: any) {
-    console.error('[API Error]:', error);
-    return res.status(500).json({ 
-      response: `Error interno en el servidor: ${error.message || error}` 
+    console.error('Error al comunicarse con OpenRouter:', error);
+    res.status(500).json({
+      error: 'Error interno en el servidor',
+      details: error.message || error,
     });
   }
 });
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../web/index.html'));
-});
+// Puerto dinámico asignado por Render
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Servidor activo en el puerto ${PORT}`);
+  console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
