@@ -19,7 +19,7 @@ app.get('/', (req: Request, res: Response) => {
   res.send('Servidor corriendo correctamente en Render con OpenRouter');
 });
 
-// Ejemplo de endpoint para procesar peticiones con la IA
+// Endpoint para procesar peticiones con la IA
 app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
   try {
     const { message } = req.body;
@@ -30,7 +30,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     }
 
     const completion = await openai.chat.completions.create({
-      model: 'google/gemini-2.5-flash', // Modelo gratuito en OpenRouter
+      model: 'meta-llama/llama-3.2-3b-instruct:free', // Modelo 100% gratuito que no requiere saldo
       messages: [
         { role: 'user', content: message }
       ],
