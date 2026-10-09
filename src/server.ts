@@ -21,7 +21,9 @@ app.get('/health', (req: Request, res: Response) => {
   res.send('Servidor corriendo correctamente');
 });
 
-// Función de pausa/espera
+// Alias y modelos estables compatibles con la capa gratuita
+const CANDIDATE_MODELS = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.5-flash'];
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
@@ -35,32 +37,37 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
 
     let reply = '';
     let lastError: any = null;
-    const maxRetries = 3;
 
-    // Intentar hasta 3 veces con gemini-3.8-flash manejando picos 503
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: message,
-        });
+    // Recorrer los modelos candidatos
+    for (const modelName of CANDIDATE_MODELS) {
+      // Hasta 3 reintentos con incrementos de espera (2s, 4s, 6s) si hay pico de demanda (503/429)
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: message,
+          });
 
-        reply = response.text || 'Sin respuesta del modelo.';
-        lastError = null;
-        break; // Respuesta exitosa
-      } catch (err: any) {
-        lastError = err;
-        const isTransient = err?.status === 503 || err?.status === 429 || err?.message?.includes('503');
+          reply = response.text || 'Sin respuesta del modelo.';
+          lastError = null;
+          break; // Éxito
+        } catch (err: any) {
+          lastError = err;
+          const isTransient = err?.status === 503 || err?.status === 429 || err?.message?.includes('503');
 
-        if (isTransient && attempt < maxRetries) {
-          const delay = attempt * 2000; // 2s, luego 4s
-          console.warn(`[Intento ${attempt}/${maxRetries}] Pico de demanda en gemini-3.8-flash. Reintentando en ${delay / 1000}s...`);
-          await sleep(delay);
-          continue;
+          if (isTransient && attempt < 3) {
+            const delay = attempt * 2000;
+            console.warn(`[503/429] ${modelName} ocupado (intento ${attempt}/3). Reintentando en ${delay / 1000}s...`);
+            await sleep(delay);
+            continue;
+          }
+
+          console.warn(`Error con modelo ${modelName}:`, err.message || err);
+          break; // Si es otro error (p.ej. 404), pasar inmediatamente al siguiente modelo
         }
-
-        break;
       }
+
+      if (reply) break; // Si ya obtuvimos respuesta, salir del bucle
     }
 
     if (lastError && !reply) {
