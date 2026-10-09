@@ -1,30 +1,26 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import OpenAI from 'openai';
+import { GoogleGenAI } from '@google/genai';
 
 const app = express();
 app.use(express.json());
 
-// Reconstruir __dirname para compatibilidad con ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Servir archivos estáticos de la carpeta 'web'
 app.use(express.static(path.join(__dirname, '../web')));
 
-// Configuración del cliente usando la API directa de Google Gemini
-const openai = new OpenAI({
+// Inicializar el cliente oficial de Gemini
+const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY,
-  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
 });
 
-// Endpoint de chequeo de salud
 app.get('/health', (req: Request, res: Response) => {
-  res.send('Servidor corriendo correctamente en Render con Gemini API');
+  res.send('Servidor corriendo correctamente');
 });
 
-// Endpoint para procesar peticiones con la IA
 app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
   try {
     const { message } = req.body;
@@ -34,14 +30,13 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const completion = await openai.chat.completions.create({
-      model: 'gemini-1.5-flash',
-      messages: [
-        { role: 'user', content: message }
-      ],
+    // Consulta directa usando la SDK oficial
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: message,
     });
 
-    const reply = completion.choices[0]?.message?.content || 'Sin respuesta del modelo.';
+    const reply = response.text || 'Sin respuesta del modelo.';
     res.json({ success: true, response: reply });
   } catch (error: any) {
     console.error('Error al comunicarse con Gemini API:', error);
@@ -52,9 +47,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-// Puerto dinámico asignado por Render
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
