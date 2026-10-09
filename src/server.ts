@@ -50,14 +50,17 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
         throw new Error('No hay API key configurada.');
       }
 
-      const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      // Petición oficial a OpenRouter usando el endpoint compatible con OpenAI
+      const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey.trim()}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://periferia.it', // Requerido/Recomendado por OpenRouter
+          'X-Title': 'SAP Procurement Agent'         // Nombre de la app para OpenRouter
         },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+          model: 'deepseek/deepseek-chat:free', // Modelo gratuito altamente estable en OpenRouter
           messages: [
             {
               role: 'system',
@@ -72,10 +75,10 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
         })
       });
 
-      const data = await groqResponse.json();
+      const data = await aiResponse.json();
 
-      if (!groqResponse.ok) {
-        throw new Error(data.error?.message || `Error HTTP ${groqResponse.status}`);
+      if (!aiResponse.ok) {
+        throw new Error(data.error?.message || `Error HTTP ${aiResponse.status}`);
       }
 
       responseText = data.choices?.[0]?.message?.content || '';
@@ -84,6 +87,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     } catch (apiError: any) {
       console.warn('[WARN] Usando respaldo determinista local debido a:', apiError.message);
       
+      // Respaldo robusto de alta disponibilidad
       if (resultadoCreacion) {
         responseText = resultadoCreacion.success 
           ? `La solicitud ${matchSolicitud?.[0]?.toUpperCase()} ha sido procesada exitosamente. Orden de Compra generada en SAP: #${resultadoCreacion.ordenCompra}`
