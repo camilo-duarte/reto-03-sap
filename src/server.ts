@@ -50,7 +50,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
         throw new Error('No hay API key configurada.');
       }
 
-      // Petición oficial a OpenRouter usando el modelo gratuito actualizado
+      // Petición oficial a OpenRouter usando el enrutador inteligente genérico
       const aiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -60,7 +60,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
           'X-Title': 'SAP Procurement Agent'
         },
         body: JSON.stringify({
-          model: 'google/gemma-3-27b-it:free', // Modelo gratuito actualizado en OpenRouter
+          model: 'openrouter/free', // Enrutador inteligente que selecciona automáticamente un modelo gratuito activo
           messages: [
             {
               role: 'system',
@@ -85,7 +85,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
       if (!responseText) throw new Error('Respuesta vacía del LLM');
 
     } catch (apiError: any) {
-      console.warn('[WARN] Usando respaldo determinista local debido a:', apiError.message);
+      console.warn('[WARN] Usando respaldo determinista local debido à:', apiError.message);
       
       if (resultadoCreacion) {
         responseText = resultadoCreacion.success 
