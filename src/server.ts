@@ -4,19 +4,15 @@ import OpenAI from 'openai';
 const app = express();
 app.use(express.json());
 
-// Configuración del cliente para OpenRouter
+// Configuración del cliente usando la API directa y gratuita de Google Gemini
 const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY,
-  baseURL: 'https://openrouter.ai/api/v1',
-  defaultHeaders: {
-    'HTTP-Referer': 'https://reto-03-sap.onrender.com',
-    'X-Title': 'Reto 03 SAP',
-  },
+  apiKey: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY,
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
 });
 
 // Ruta principal de salud del servicio
 app.get('/', (req: Request, res: Response) => {
-  res.send('Servidor corriendo correctamente en Render con OpenRouter');
+  res.send('Servidor corriendo correctamente en Render con Gemini API');
 });
 
 // Endpoint para procesar peticiones con la IA
@@ -30,7 +26,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     }
 
     const completion = await openai.chat.completions.create({
-      model: 'google/gemini-2.0-flash-lite-001:free', // Modelo 100% gratuito activo en OpenRouter
+      model: 'gemini-2.5-flash', // Modelo de Google Gemini 100% gratuito
       messages: [
         { role: 'user', content: message }
       ],
@@ -39,7 +35,7 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     const reply = completion.choices[0]?.message?.content || 'Sin respuesta del modelo.';
     res.json({ success: true, response: reply });
   } catch (error: any) {
-    console.error('Error al comunicarse con OpenRouter:', error);
+    console.error('Error al comunicarse con Gemini API:', error);
     res.status(500).json({
       error: 'Error interno en el servidor',
       details: error.message || error,
