@@ -21,6 +21,24 @@ app.get('/health', (req: Request, res: Response) => {
   res.send('Servidor corriendo correctamente');
 });
 
+// Función auxiliar para reintentar llamadas a la API en caso de error 503
+async function generateContentWithRetry(aiClient: any, payload: any, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await aiClient.models.generateContent(payload);
+    } catch (error: any) {
+      const isUnavailable = error?.status === 503 || error?.message?.includes('503') || error?.message?.includes('high demand');
+      if (isUnavailable && attempt < maxRetries) {
+        const delay = attempt * 2000; // Espera progresiva: 2s, 4s, 6s...
+        console.warn(`[WARN] Modelo saturado (503). Reintentando en ${delay / 1000}s (Intento ${attempt}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw error;
+      }
+    }
+  }
+}
+
 app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
   try {
     const { message, confirmadoPorUsuario } = req.body;
@@ -33,31 +51,45 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
     // Detectar si el mensaje menciona alguna solicitud específica (ej: sol-001, sol-004, etc.)
     const matchSolicitud = message.match(/sol-\d{3}/i);
     let datosTool = '';
+    let resultadoValidacionGlobal: any = null;
 
     if (matchSolicitud) {
       const solicitudId = matchSolicitud[0].toLowerCase();
-      const resultadoValidacion = validarSolicitudConReglas(solicitudId, confirmadoPorUsuario || false);
+      resultadoValidacionGlobal = validarSolicitudConReglas(solicitudId, confirmadoPorUsuario || false);
       
       if (message.toLowerCase().includes('procesar') || message.toLowerCase().includes('crear')) {
         const resultadoCreacion = oc_crear(solicitudId, confirmadoPorUsuario || false);
         datosTool = `\n\n[EJECUCIÓN DE HERRAMIENTA OC]:\n${JSON.stringify(resultadoCreacion, null, 2)}`;
       } else {
-        datosTool = `\n\n[VALIDACIÓN DE REGLAS RC1-RC10]:\n${JSON.stringify(resultadoValidacion, null, 2)}`;
+        datosTool = `\n\n[VALIDACIÓN DE REGLAS RC1-RC10]:\n${JSON.stringify(resultadoValidacionGlobal, null, 2)}`;
       }
     }
 
     const systemPrompt = `Eres el Agente Conversacional experto en Control y Órdenes de Compra SAP (Periferia IT Group). 
 Utiliza estrictamente los resultados de validación técnica adjuntos para responder al usuario de forma precisa y profesional.${datosTool}`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash', // Modelo actualizado según indicación de la API
-      contents: message,
-      config: {
-        systemInstruction: systemPrompt,
-      },
-    });
+    let responseText = '';
 
-    res.json({ success: true, response: response.text || 'Sin respuesta del modelo.' });
+    try {
+      const response = await generateContentWithRetry(ai, {
+        model: 'gemini-3.8-flash',
+        contents: message,
+        config: {
+          systemInstruction: systemPrompt,
+        },
+      });
+      responseText = response.text || 'Procesamiento completado.';
+    } catch (aiError: any) {
+      console.error('Error persistente con la IA, aplicando fallback determinista:', aiError);
+      // Fallback de emergencia si la API de Google sigue caída: respondemos directo con la lógica del negocio
+      if (resultadoValidacionGlobal) {
+        responseText = `[Aviso de sistema por alta demanda en IA]: La validación técnica de la solicitud se ejecutó de forma determinista:\n- Apta: ${resultadoValidacionGlobal.apta}\n- Bloqueos: ${JSON.stringify(resultadoValidacionGlobal.bloqueos)}\n- Alertas HITL: ${JSON.stringify(resultadoValidacionGlobal.confirmacionesRequeridas)}`;
+      } else {
+        responseText = 'El servicio de IA está experimentando alta demanda temporal (Error 503). Por favor, intenta de nuevo en unos segundos.';
+      }
+    }
+
+    res.json({ success: true, response: responseText });
   } catch (error: any) {
     console.error('Error en /api/chat:', error);
     res.status(500).json({
